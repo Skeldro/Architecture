@@ -1,0 +1,75 @@
+# Software Architecture Worksheet
+
+## 1. Software Development Process
+
+Ensure a clear understanding of the Software Development Lifecycle familiarity with the Development Process Phases:
+
+- White Paper
+- Domain Analysis
+- Requirements Gathering
+- Solution Analysis
+- Design
+- Implementation
+- Integration
+- Testing
+- Release
+- Retirement
+
+**Ask Yourself:** Can you explain each phase and why it is necessary?
+
+## 2. Architecture in the Development Process
+
+Architecture is not the first step in software development.
+
+- Understanding when architecture begins is crucial.
+- Architecture typically begins after requirements have been gathered and during solution analysis.
+- It bridges the gap between understanding the problem and implementing the solution.
+- Architectural decisions are made before detailed design and implementation.
+- Good architecture considers the entire lifecycle, including eventual retirement.
+
+**Critical Understanding:** Architecture begins after you understand what you are building (requirements) but before you decide exactly how to build it (detailed design).
+
+## 3. Development Methodologies
+
+Briefly describe the following development methodologies and when they are applicable:
+
+- Fast Prototyping
+- Waterfall
+- Incremental Model
+- Spiral Development
+- Lean Development
+- Extreme Programming
+- Scrum
+- Kanban
+
+## 4. Software Architecture Layers
+
+Software is often separated into layers. The following is a common schema:
+
+- Application Layer
+- Domain Layer
+- Generic Infrastructure
+- Off-the-Shelf / Commercial Products
+- Platform Layer
+
+For each layer, answer the following questions:
+
+- What is the layer responsible for?
+- How is layering accomplished?
+- *"While a company's competitor will usually have a similar Domain Layer, the value of its IP is primarily found in the Generic Infrastructure Layer."* Explain.
+- How does the Generic Infrastructure provide a competitive edge for the Application Layer?
+- You are writing a CRM application. For each layer, describe several elements of the system that belong in that layer.
+- What advantages are there to layering software in this way?
+- In a newer version of your CRM you find elements of the software migrating between layers. Explain.
+
+## 5. Software Architecture Core Concepts
+
+Define the following:
+
+- Stubs
+- Architecture
+- Infrastructure
+- Frameworks
+- Design Patterns
+- Plug-ins
+- *"It's hard to achieve the full benefits of a Scrum heartbeat of sprints until you have basic infrastructure stubs that support frameworks and plug-ins."* Explain.
