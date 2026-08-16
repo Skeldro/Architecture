@@ -1,6 +1,8 @@
-# Decision Log
+# Decision Log — architecture decisions only
 
-Every non-trivial decision gets an entry **when it's made**, not reconstructed later — the point is honest reasoning, including what was rejected. Written in plain language, presentation-ready for mentor sessions. Numbered globally (D1, D2, …), grouped by phase.
+Decisions about the **system being built** — its structure, technology, storage, interfaces. Process/workflow decisions (repo layout, branching, course method) live in README.md instead.
+
+Every entry is written **when the decision is made**, not reconstructed later — the point is honest reasoning, including what was rejected. Plain language, presentation-ready for mentor sessions. Numbered globally (D1, D2, …), grouped by phase.
 
 Entry format:
 
@@ -15,23 +17,11 @@ Entry format:
 
 ## Phase 0
 
-### D1: Own repository per project
-- **Decision:** The course gets its own repo (`Skeldro/Architecture`), not a folder in an existing one.
-- **Why:** Independent history and clean presentation; course state shouldn't be tangled with unrelated work.
-
-### D2: Branch per phase
-- **Decision:** Each phase is developed on its own branch (`phase-N`) cut from `main`, merged back when the phase completes.
-- **Why:** `main` only ever holds finished phases, so it's always presentable; the merge is a natural checkpoint matching the mentor-session cadence. Process/meta files (README, this log's scaffold) go straight to `main`.
-
-### D3: Decision log (this file)
-- **Decision:** Track decisions and reasoning in `decisions.md`, sectioned by phase.
-- **Why:** Mentor sessions revolve around presenting and discussing decisions. Logging at decision time captures the real reasoning; writing it up afterwards produces revisionist, too-tidy justifications.
-
-### D4: Go, standard library only
+### D1: Go, standard library only
 - **Decision:** Backend in Go (`net/http` + `os`, no framework); frontend is server-rendered HTML forms, no client framework, near-zero JS. Single command = `go run .`.
 - **Why:** The language should be boring so the architecture is loud — Go is small, reads like structured C (home turf), and its stdlib covers all of phase 0, which honors the "no abstractions" constraint. Later phases point at real-time collaboration, which lands in Go's core strength (goroutines/channels). Career-wise, C/C++ → Go is the natural systems-to-backend bridge. **Rejected:** another JS project (nothing new learned); C89 (fails the course, not the task — we'd spend every phase on HTTP plumbing instead of architecture).
 
-### D5: Documents are plain files; the title is the filename
+### D2: Documents are plain files; the title is the filename
 - **Decision:** One folder (`docs/`). Each document = `docs/<title>.txt`, raw plain text, newlines are `\n`. Save = full overwrite of the file. List = scan the folder at request time. No metadata file, no index, no dates.
 - **Why:** The disk is the single source of truth — nothing cached or duplicated that can drift. The spec didn't ask for dates or metadata, so none exist (Lean). **Rejected:** sidecar JSON per doc (metadata with nothing to hold yet) and a central `index.json` (a second source of truth that can disagree with the folder).
 - **Accepted costs (future-phase fodder):** titles must be filename-safe and unique; a crash mid-overwrite can lose a document; every list request is a directory scan. **Revisit if:** any of these actually hurt.

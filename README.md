@@ -11,7 +11,11 @@ Learning software architecture through worksheets + a course project. This folde
 
 ## Workflow
 
-Project work happens in **phases**. Each phase gets its own branch (`phase-0`, `phase-1`, …) cut from `main`; when the phase is complete it merges back into `main`. Process/meta changes (like this README) can go straight to `main`.
+Process decisions (how we work — not what we build; those go in `decisions.md`):
+
+- **Own repo per project** — independent history, clean presentation; course state stays untangled from other work.
+- **Branch per phase** (`phase-0`, `phase-1`, …) cut from `main`, merged back when the phase completes. `main` only ever holds finished phases, so it's always presentable; the merge is a natural checkpoint matching the mentor-session cadence. Process/meta changes can go straight to `main`.
+- **Decision log** (`decisions.md`) — architecture decisions only, one entry at the time the decision is made (reasoning written afterwards comes out revisionist and too tidy). This is the material presented in mentor sessions.
 
 ## Running the app
 
