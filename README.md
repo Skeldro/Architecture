@@ -16,6 +16,7 @@ Project work happens in **phases**. Each phase gets its own branch (`phase-0`, `
 ## Files
 
 - `BeforeYouStart.txt` — the original 5-item worksheet (SDLC, architecture placement, methodologies, layers, core concepts).
+- `decisions.md` — decision log, one entry per decision at the time it's made, grouped by phase. The material for mentor-session presentations.
 - `handoffs/` — session summaries, one per session, dated. Latest = current state of the course.
 
 ## Status (2026-08-12)
