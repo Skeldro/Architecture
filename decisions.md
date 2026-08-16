@@ -26,3 +26,12 @@ Entry format:
 ### D3: Decision log (this file)
 - **Decision:** Track decisions and reasoning in `decisions.md`, sectioned by phase.
 - **Why:** Mentor sessions revolve around presenting and discussing decisions. Logging at decision time captures the real reasoning; writing it up afterwards produces revisionist, too-tidy justifications.
+
+### D4: Go, standard library only
+- **Decision:** Backend in Go (`net/http` + `os`, no framework); frontend is server-rendered HTML forms, no client framework, near-zero JS. Single command = `go run .`.
+- **Why:** The language should be boring so the architecture is loud — Go is small, reads like structured C (home turf), and its stdlib covers all of phase 0, which honors the "no abstractions" constraint. Later phases point at real-time collaboration, which lands in Go's core strength (goroutines/channels). Career-wise, C/C++ → Go is the natural systems-to-backend bridge. **Rejected:** another JS project (nothing new learned); C89 (fails the course, not the task — we'd spend every phase on HTTP plumbing instead of architecture).
+
+### D5: Documents are plain files; the title is the filename
+- **Decision:** One folder (`docs/`). Each document = `docs/<title>.txt`, raw plain text, newlines are `\n`. Save = full overwrite of the file. List = scan the folder at request time. No metadata file, no index, no dates.
+- **Why:** The disk is the single source of truth — nothing cached or duplicated that can drift. The spec didn't ask for dates or metadata, so none exist (Lean). **Rejected:** sidecar JSON per doc (metadata with nothing to hold yet) and a central `index.json` (a second source of truth that can disagree with the folder).
+- **Accepted costs (future-phase fodder):** titles must be filename-safe and unique; a crash mid-overwrite can lose a document; every list request is a directory scan. **Revisit if:** any of these actually hurt.

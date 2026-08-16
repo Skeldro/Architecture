@@ -13,6 +13,14 @@ Learning software architecture through worksheets + a course project. This folde
 
 Project work happens in **phases**. Each phase gets its own branch (`phase-0`, `phase-1`, …) cut from `main`; when the phase is complete it merges back into `main`. Process/meta changes (like this README) can go straight to `main`.
 
+## Running the app
+
+```
+go run .
+```
+
+Then open http://localhost:8080. Documents live as plain files in `docs/` (gitignored — user data, not code).
+
 ## Files
 
 - `BeforeYouStart.txt` — the original 5-item worksheet (SDLC, architecture placement, methodologies, layers, core concepts).
