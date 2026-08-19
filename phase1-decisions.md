@@ -2,6 +2,27 @@
 
 Phase 1 moves CollabDocs from Phase 0's local-files starter to a real platform: state outlives the runtime, concurrent writes do not silently lose content, the environment is reproducible, and an operator can see system health.
 
+## The short version, in plain language
+
+Phase 0 was one program on one laptop writing text files into a folder. That holds up right until you want two things: more than one copy of the program running, and confidence that turning the machine off doesn't lose anyone's work. Everything below is that change.
+
+**1. How the app runs — containers, managed by Kubernetes, five copies.**
+We wrap the app in a container: a sealed box holding the program and everything it needs, so it runs identically on any machine instead of only on the one where it was set up. Kubernetes is the thing that keeps those boxes alive — if one crashes it starts a replacement within seconds, with nobody getting woken up. We run five copies so losing one is a non-event rather than an outage. Being honest about it: five is more than this traffic needs. The real argument isn't today's load, it's that growing ten times later becomes a number change instead of a rewrite.
+
+**2. Where documents live — a PostgreSQL database instead of files.**
+The moment there are five copies of the app, a folder of text files stops working: each copy has its own folder, so your save lands on one machine and your next page load asks a different one that's never heard of it. Documents move into a database all five share. There's a second reason, and it's the one that actually matters: a database can check, at the instant of writing, whether someone else changed the document while you were typing — and tell you if they did. Files can't do that. They quietly overwrite, which is exactly the bug this phase exists to kill.
+
+**3. What remembers things — the database, and nothing else.**
+The app copies remember nothing between requests. All the truth sits in the database. That's what makes it safe to kill, restart, or replace any copy of the app at any moment: there's nothing inside worth keeping. The flip side is that the database becomes the one thing we genuinely cannot lose, so it gets its own storage, its own lifecycle, and its own backups.
+
+**4. How you get it running — the instructions are code in the repo.**
+Phase 0's deployment procedure was "however it got set up that day," which nobody can repeat, including the person who did it. Now the container recipe and the deployment files live in git, so a fresh clone becomes a running system via a build and one apply command, inside ten minutes. The one hand-made piece left is the cluster itself, set up once and documented — a known asterisk on the word "reproducible."
+
+**5. How you know it's healthy — the app reports on itself.**
+Today the only way to learn something broke is a user complaining. So the app writes structured logs, exposes a page of counters (how many requests, how slow, how many errors, how many save-collisions), and answers a health check that actually tries to talk to the database rather than just confirming it's awake. A health check that only says "I'm running" would cheerfully report all-clear while every single save was failing.
+
+---
+
 **Status:** Decision 1 is Andrew's, made in session. Decisions 2–5 are **PROPOSED DRAFTS** written for review — they follow from Decision 1 and are internally consistent, but they are not yet his. Rework freely.
 
 ---
