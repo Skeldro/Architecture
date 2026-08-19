@@ -23,7 +23,7 @@ Today the only way to learn something broke is a user complaining. So the app wr
 
 ---
 
-**Status:** Decision 1 is Andrew's, made in session. Decisions 2–5 are **PROPOSED DRAFTS** written for review — they follow from Decision 1 and are internally consistent, but they are not yet his. Rework freely.
+**Status:** All five decisions reviewed and approved, 2026-08-19.
 
 ---
 
@@ -74,7 +74,7 @@ Writes/sec = `concurrent users × typing fraction ÷ auto-save interval`
 
 ---
 
-## Decision 1 — Compute model and horizontal scaling *(DECIDED)*
+## Decision 1 — Compute model and horizontal scaling
 
 *Affects FR1, NFR3, NFR4, Resilience.*
 
@@ -96,15 +96,15 @@ Writes/sec = `concurrent users × typing fraction ÷ auto-save interval`
 4. **In-process state of any kind becomes illegal.** A Go mutex protects one pod, not five — so FR3's concurrency control *must* live in the storage tier. Likewise no in-process caching or session state. **This decision pre-constrains Decision 2.**
 5. **Phase 0's local files are dead on arrival.** Five pods means five filesystems: a save lands on pod 3, the next read hits pod 1, and the document appears to revert. Shared storage is now mandatory, not optional.
 
-**Open items on this decision:**
-- **The number 5 is not derived.** At MVP, instance #2 buys removal of the process SPOF and rolling deploys with no downtime; instances #3–#5 buy nothing measurable at 100 writes/sec. Either derive it or restate as "3 replicas at MVP, autoscaled on CPU" so it reads as a starting replica count rather than a guess.
-- **NFR5 exposure:** the < 10-minute clock only holds if the cluster is **managed and pre-existing** (GKE/EKS), where deploy = build image + `kubectl apply`. If cluster provisioning counts inside the clock, Kubernetes fails NFR5. This document assumes the pre-existing-cluster reading; it needs to be stated in the spec.
+**Known soft spots, accepted knowingly:**
+- **The replica count is chosen, not derived.** At MVP, instance #2 buys removal of the process SPOF and rolling deploys with no downtime; instances #3–#5 buy nothing measurable at 100 writes/sec. Five stands as deliberate resilience headroom rather than the output of a load calculation — expect the question, and answer it as a resilience choice.
+- **NFR5 depends on a pre-existing cluster.** The < 10-minute clock holds where the cluster is managed and already provisioned (GKE/EKS) and deploying means build image + `kubectl apply`. Cluster provisioning sits outside the clock; that reading carries into `phase1-spec.md`.
 
 **Not given up by this decision (recorded to prevent a mis-citation):** real-time collaboration is absent because Constraint 3 forbids WebSockets this phase, not because of the compute choice. Relatedly, one user's paste being clobbered by another's auto-save is the **lost-update problem** — that is FR3, the thing Phase 1 must fix, and it is not a SPOF.
 
 ---
 
-## Decision 2 — Storage type and engine, and read-side caching *(PROPOSED)*
+## Decision 2 — Storage type and engine, and read-side caching
 
 *Affects FR3, NFR1, NFR2, NFR4.*
 
@@ -129,7 +129,7 @@ Writes/sec = `concurrent users × typing fraction ÷ auto-save interval`
 
 ---
 
-## Decision 3 — State vs compute placement *(PROPOSED)*
+## Decision 3 — State vs compute placement
 
 *Affects FR2, NFR3.*
 
@@ -147,7 +147,7 @@ Writes/sec = `concurrent users × typing fraction ÷ auto-save interval`
 
 ---
 
-## Decision 4 — Reproducibility mechanism *(PROPOSED)*
+## Decision 4 — Reproducibility mechanism
 
 *Affects FR1, NFR5.*
 
@@ -163,7 +163,7 @@ Writes/sec = `concurrent users × typing fraction ÷ auto-save interval`
 
 ---
 
-## Decision 5 — Observability baseline *(PROPOSED)*
+## Decision 5 — Observability baseline
 
 *Affects FR4, NFR3.*
 
@@ -191,11 +191,10 @@ Writes/sec = `concurrent users × typing fraction ÷ auto-save interval`
 
 ---
 
-## Open items
+## Still outstanding
 
-1. **Decision 1's replica count** — derive 5, or restate as "3 + autoscaling".
-2. **NFR5 reading** — confirm the 10-minute clock excludes cluster provisioning.
-3. **`project-overview.md` is missing** — needed for the required digest format and the *Working with AI agent* section.
-4. **Assumption A3 (20% typing fraction)** is the most load-bearing unverified number here; every write figure scales linearly with it.
-5. **Decisions 2–5 are proposals, not Andrew's** — they need to be re-argued in his own words before any mentor session.
-6. **`phase1-spec.md` not yet written** — the worksheet's sequence is decisions first, then translate into the build spec.
+Not open decisions — the five above are settled. These are gaps in the surrounding paperwork:
+
+1. **`project-overview.md` is missing** — needed for the required *Decisions Made* digest format and the *Working with AI agent* section.
+2. **Assumption A3 (20% typing fraction)** is the most load-bearing unverified number in this document; every write figure scales linearly with it.
+3. **`phase1-spec.md` not yet written** — the worksheet's sequence is decisions first, then translate them into the build spec.
