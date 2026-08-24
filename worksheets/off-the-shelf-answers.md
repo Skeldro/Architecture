@@ -75,3 +75,52 @@ Assumptions: $100/hour, 4 weeks to build (160 hours), 10% annual maintenance, $2
 Buy wins decisively, and only crosses over at roughly year seven — by which point the built version needs work the estimate never included: **MFA** (Multi-Factor Authentication), **SSO** (Single Sign-On), and continuous security patching.
 
 **The number that flips it:** per-user pricing. If growth takes the subscription from $200 to $2,000/month, buy costs $24,000/year and the arithmetic reverses entirely. So the decision is not a single sum — it is a sum evaluated at *the scale you expect to reach*, which is exactly the term that gets forgotten.
+
+---
+
+## Question 3 — Authentication Services
+
+### a. Why is authentication complex to build correctly?
+
+**1. The surface area is enormous, and none of it is the product.**
+Signup, login, logout, password reset, email verification, session management, remember-me, account lockout, rate limiting, **MFA** (Multi-Factor Authentication) enrollment *and recovery*, social-login callbacks, **SSO** (Single Sign-On), device management, audit logs. Each is a separate flow with its own way of being subtly wrong, and not one of them is a reason anybody chooses the product.
+
+**2. The failure mode is catastrophic and silent.**
+An ordinary bug loses a paragraph and someone complains. An authentication bug exposes every user's data, produces no crash and no stack trace, and is typically discovered by an outsider. The severity class is different from ordinary defects: the exposure is legal, not merely operational.
+
+**3. Correctness is a moving target.**
+Password hashing parameters, session handling, **CSRF** (Cross-Site Request Forgery) defence, credential-stuffing mitigation and breach-list checking all shift over time. What was correct practice five years ago is weak now, and tracking that drift is a permanent maintenance obligation rather than a one-off implementation cost.
+
+**4. It depends on infrastructure outside the application.**
+Verification and password-reset messages have to actually arrive, which requires domain reputation and correct **SPF** (Sender Policy Framework), **DKIM** (DomainKeys Identified Mail) and **DMARC** (Domain-based Message Authentication, Reporting and Conformance) configuration. Misconfigured, reset emails land in spam and authentication is silently broken for real users. Federated login adds a second such dependency: being a registered relying party with each identity provider.
+
+### b. Compliance benefits of commercial authentication services
+
+Vendors carry attestations that would otherwise have to be earned: **SOC 2 Type II** (Service Organization Control 2), **ISO 27001**, GDPR tooling for data-subject access and deletion requests, and **HIPAA** (Health Insurance Portability and Accountability Act) alignment where health data is involved. A **DPA** (Data Processing Agreement) places part of the breach liability on the vendor contractually.
+
+The mechanism matters more than the list: **their audit evidence becomes usable as your answer.** When a customer's security questionnaire asks how credentials are stored, the response is an attestation rather than a defence of one's own cryptography. The benefit is therefore commercial as much as legal — it unblocks enterprise sales. Vendors also track regulatory change continuously, which is ongoing work rather than a one-time cost.
+
+### c. Auth0 / WorkOS at $200 per month versus four weeks of building
+
+The financial comparison is Question 2's arithmetic: roughly $20,800 over three years to build against $11,200 to buy, crossing over only around year seven — and that crossover assumes the built version never grows MFA, SSO or continued security patching, which it must.
+
+The decisive term is not financial. Building means **assuming the legal exposure personally**: the breach, the compliance gap and the questionnaire all become yours to answer. Buying transfers a meaningful portion of that.
+
+Two conditions reverse the conclusion. **Per-user pricing at scale** — growth that takes the subscription from $200 to $2,000 per month makes buying cost $24,000 a year and flips the sum. And **build genuinely wins** when authentication is itself the product, when requirements exist that no vendor supports, or when data-residency rules forbid the vendor outright.
+
+### d. Externalized authorization (OpenFGA, SpiceDB, Auth0 FGA) — the build-vs-buy trade-off
+
+Authorization is a *different* decision from authentication, despite appearing to be the same shape.
+
+**The options are not all subscriptions.** OpenFGA is open source (a **CNCF** — Cloud Native Computing Foundation — project, originating at Auth0/Okta) and self-hostable at no licence cost. SpiceDB is likewise open source, with an optional managed tier. Auth0 FGA is the hosted product. So "buy" here spans free-but-operated through to fully managed, and the free-versus-subscription distinction from Question 2 applies inside this single category.
+
+**What these tools solve** is the permission *graph*: can this user edit this document, given membership of a team that was granted access to a parent folder? Google published the Zanzibar paper describing its own solution — built for Google Docs — and OpenFGA and SpiceDB are open implementations of that model. This is **ReBAC** (Relationship-Based Access Control), as opposed to simpler **RBAC** (Role-Based Access Control).
+
+**Four reasons the calculus differs from authentication:**
+
+1. **Authorization sits on the hot path.** Authentication happens once per session; authorization is evaluated on every request, often repeatedly. Externalizing it adds a network hop to the most frequently executed path in the system.
+2. **The rules are domain knowledge.** Who may edit a document is a business rule — Domain Layer material — whereas authentication is commodity infrastructure. Applying the differentiator test therefore yields *different answers* for the two.
+3. **There is a complexity threshold.** Owner/editor/viewer is a column and a `WHERE` clause, and that is the correct answer for most systems. Zanzibar-class tooling earns its place once the graph deepens — nested groups, inherited folder permissions, share links — or once several services must agree on the same rules.
+4. **Failure coupling is more severe.** An unavailable authorization service denies everything, which is a harder outage than an unavailable login service.
+
+**Position taken:** buy authentication, build authorization — until the permission graph outgrows a table. For CollabDocs specifically, sharing with people, teams and links is the exact use case Zanzibar was designed for, so the threshold is genuinely reachable; the plan is a `permissions` table in phase 2, with ReBAC tooling reconsidered when nested or inherited sharing arrives.
