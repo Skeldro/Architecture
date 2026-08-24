@@ -291,6 +291,26 @@ The costs are real and should be stated alongside: eventual consistency, orderin
 
 **The distinction worth carrying:** RabbitMQ and SQS deliver *work to be consumed*, whereas Kafka retains *facts to be read*. Choosing between them is really choosing which of those the data is.
 
+
+### d. How each one actually works
+
+The quickest way to hold all three is to ask **who remembers what has been consumed**; everything else follows from the answer.
+
+**RabbitMQ — a broker that hands out work.** Producers publish to an **exchange**, not a queue; bindings and routing keys decide which queues receive a copy (`direct` for exact key match, `topic` for wildcard patterns, `fanout` for a copy to every bound queue). The broker then *pushes* to subscribed consumers and holds each message as unacknowledged until the consumer acks it — if that consumer dies first, the message is redelivered elsewhere. Ack means delete. Prefetch caps how many unacked messages a consumer may hold, which is the flow-control mechanism. The protocol is **AMQP** (Advanced Message Queuing Protocol) over a persistent connection. *Smart broker, dumb consumer:* per-message state lives in the broker.
+
+**Kafka — an append-only log that consumers read.** A topic is divided into **partitions**, each an ordered, immutable sequence appended to disk; ordering holds within a partition only, and producers select a partition by hashing a key so that related records stay ordered. Consumers *pull* and each tracks its own **offset** into the log. Consumption deletes nothing — records expire on a retention policy — so offsets can be rewound to replay history, and independent consumer groups read the same partition at different positions simultaneously. Its throughput comes from sequential disk writes and zero-copy transfer rather than per-message bookkeeping. *Dumb broker, smart consumer.* The operational catch: **parallelism is capped by partition count** — a group cannot usefully employ more consumers than there are partitions.
+
+**SQS — a queue as an HTTP endpoint.** No broker to operate and no persistent connection; consumers call `ReceiveMessage` over HTTP with long polling. The mechanism to understand is the **visibility timeout**: receiving a message hides it from other consumers for a period rather than removing it, and it is deleted only when the consumer explicitly calls `DeleteMessage`. A consumer that crashes first simply lets the timer expire, and the message reappears for someone else. At-least-once delivery therefore rests on **a timer rather than connection state**, which is precisely what allows the service to be stateless and scale without bound.
+
+| | RabbitMQ | Kafka | SQS |
+|---|---|---|---|
+| Who tracks progress | Broker, per message | **Consumer**, one offset | Broker, via timer |
+| After consumption | Deleted | **Retained** | Deleted |
+| Delivery | Push | Pull | Pull (poll) |
+| Parallelism limit | Any number of consumers | **Partition count** | Unlimited |
+| Replay history | No | **Yes** | No |
+
+
 ---
 
 ## Question 7 — Monitoring & Observability
