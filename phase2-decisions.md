@@ -265,6 +265,29 @@ The second save conflicts **with the first one from the same user**, and the con
 
 Two checks happen at connection time: the session must be valid (acceptance criterion 3), and the subscriber must own the requested document (FR2, acceptance criterion 4). Subscriptions are per document, so broadcasts never reach sessions viewing anything else (acceptance criterion 6).
 
+#### Required: an `Origin` check on the upgrade
+
+**WebSocket handshakes are not subject to CORS.** The browser attaches the session cookie to a handshake initiated by *any* origin, so cookie authentication alone leaves the endpoint open to **cross-site WebSocket hijacking** — a page the user visits elsewhere can open a socket to us and subscribe as them.
+
+Two measures, both mandatory:
+
+- **Validate the `Origin` header against an allowlist in the upgrade handler.** Browsers always send it on a handshake and page script cannot forge it, so the check is a complete defence. This is the standard remedy and is not scale-dependent.
+- **Set `SameSite` on the session cookie**, so the browser declines to attach it cross-site at all. Modern browsers default to `Lax`, but depending on a default is not a decision.
+
+#### Accepted: a bounded revocation window
+
+The cookie is validated once, at handshake. A connection therefore outlives a session that expires — or is *revoked* — while it is open. That matters for this market specifically, since central revocation is the enterprise selling point of SSO, and "access is cut immediately, except on any socket already established" undermines it.
+
+**The exposure is small, and the reason is architectural rather than incidental.** Decision 3 makes the socket a relay with no authority: persistence goes over authenticated HTTP via `/save`, which is checked per request, so a revoked user cannot write regardless of their open connection. Constraint 4 gives one user per document, so the only traffic on that channel is the echo of their own edits from their own other tabs. Cloud Run terminates connections at sixty minutes, bounding it further.
+
+The realistic worst case today is therefore: **a revoked user watches their own typing echo back for under an hour, and can save none of it.** That is accepted, explicitly, rather than solved.
+
+**On the industry alternatives, and why none is adopted here.** The available patterns are short-lived credentials re-presented over the socket (Ably, Pusher), a bounded connection lifetime (already supplied by the platform), server-side revocation push, and per-operation authorization instead of per-connection. Google's published position is the last of these — BeyondCorp argues that a credential valid once is not grounds for trusting a later request, and Zanzibar is consulted per operation rather than per session.
+
+**That principle is already satisfied here**, and without machinery: the socket carries no authority, so every action is authorized on its own HTTP request. What is *not* adopted is the mechanism, because the mechanism answers a different question. Google's problem is revoking access across thousands of services and billions of sessions within seconds; ours is a stale socket echoing one user's own keystrokes for under an hour. The principle transfers across that gap and the implementation does not — the same reasoning that sized compute to two instances rather than five.
+
+**Revisit when Phase 4 introduces sharing.** At that point a revoked user's open socket would receive *other people's* edits rather than their own, which changes the exposure from cosmetic to substantive. The remedy is already available: publish a revocation event over the `LISTEN`/`NOTIFY` backplane and have each instance close matching connections. Cheap to build then, unjustified now.
+
 ### Scaling to 10× MVP (sketch only — not implemented)
 
 At B5's 10,000 concurrent connections the current envelope **fails, and the arithmetic is worth stating**: Cloud Run permits at most 1,000 concurrent requests per instance and a held-open WebSocket counts as one for its entire life, so 10,000 connections need at least ten instances — while Decision 1 caps at eight, a ceiling set by database connections rather than by compute.
