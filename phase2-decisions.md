@@ -83,8 +83,6 @@ The discipline here is the one the Phase 1 review already enforced: **do not bui
 | B4 | **~15,000 monthly active users in year 1** (band 14,000–16,000) | Derived backwards from the inherited concurrency figure rather than forecast — see below |
 | B5 | **Year-1 peak concurrent = 10,000** | NFR4 requires 10× MVP headroom, and MVP is 1,000 concurrent (A1). The brief's 100,000-concurrent goal is a stated ambition, not a requirement of this phase, and reaching it would need re-architecture rather than re-tuning |
 
-
-
 ### Deriving monthly active users (B4)
 
 **MAU** (monthly active users) is the unit identity vendors bill on, so Decision 2's cost comparison rests entirely on it. No forecast exists for this product, and a top-down market estimate would be unfalsifiable — so the figure is derived backwards from the one number the brief already fixed: concurrency.
@@ -248,20 +246,8 @@ The second save conflicts **with the first one from the same user**, and the con
 
 **Coalescing is free because persistence sends the whole document rather than deltas.** However many changes land during an in-flight save, the following save carries all of them, so a single boolean suffices and no queue is needed. This also imposes a natural rate limit — one save per round trip, roughly twelve per second in the worst case — which bounds a runaway client without an explicit throttle.
 
-**Only one save may be in flight at a time, and this is a correctness requirement rather than an optimisation.** Persistence carries the document's version, so two overlapping saves both carry the *same* version:
 
-```
-save A:  UPDATE … WHERE id=1 AND version=5  →  1 row,  version becomes 6
-save B:  UPDATE … WHERE id=1 AND version=5  →  0 rows  →  409 conflict
-```
-
-The second save conflicts with the first one **from the same user**, and the conflict page — *"Someone else saved this document while you were editing"* — is shown to somebody editing alone. Optimistic concurrency cannot distinguish a competing writer from a competing request by the same writer, so the client must guarantee it never issues one.
-
-The guard is the `SAVING` state above: changes arriving mid-save set a **dirty-again flag** and never start a second save. **Coalescing is free because persistence sends the whole document rather than deltas** — however many changes land during a save, the following save already carries all of them, so a single boolean suffices and no queue is required.
-
-This also produces a natural rate limit without any explicit throttle: one save per round trip, bounding a runaway client to roughly a dozen writes per second rather than an unbounded stream.
-
-**A second implementation trap, stated because it is easy to get wrong:** the inactivity timer resets on every change, and the **ceiling timer must not**. Reset both and continuous typing never reaches the ceiling, which collapses the design back to pure debounce and restores the unbounded loss window the ceiling exists to close.
+**One implementation trap, stated because it is easy to get wrong:** the inactivity timer resets on every change, and the **ceiling timer must not**. Reset both and continuous typing never reaches the ceiling, which collapses the design back to pure debounce and restores the unbounded loss window the ceiling exists to close.
 
 **A single large paste is one change event, not many.** The counter advances from zero to the paste size in a single step, crosses the threshold once, and fires once. Repeated triggering is not a risk from the size of a change; it is a risk from overlapping saves, which the `SAVING` state above prevents.
 
