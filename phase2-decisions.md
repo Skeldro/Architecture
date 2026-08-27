@@ -215,9 +215,35 @@ Keeping the server a **relay** rather than an authority preserves Phase 1's Deci
 
 ### Save cadence
 
-**Broadcast immediately; persist debounced after ~2 seconds of inactivity.** Propagation and persistence are different problems with different deadlines: peers need the edit inside NFR2's 500 ms, whereas the database only needs the document eventually.
+**Broadcast immediately and independently; persist on a bounded, edit-triggered schedule.** Propagation and persistence are different problems with different deadlines: peers need the edit inside NFR2's 500 ms, whereas the database only needs the document eventually.
 
-This is also a substantial improvement on Phase 1. Assumption A4 writes every two seconds *regardless of whether anyone is typing*, producing 100 writes/sec at MVP. Debounced persistence writes only when typing stops — roughly an order of magnitude fewer database writes. **Adding real-time makes the storage tier cheaper**, which is the write-amplification lever Phase 1 identified and deferred.
+Persistence is **triggered by changes, never by a clock.** A clean document runs no timers, counts nothing and issues no writes — there is nothing to save, so nothing happens. The schedule exists only while unsaved changes do.
+
+```
+CLEAN ──first change──► DIRTY
+                          │  start inactivity timer (2 s)
+                          │  start ceiling timer   (5 s)   ← not reset by later changes
+                          │  start byte counter
+                          │
+        further change ───┤  reset inactivity timer; accumulate bytes
+                          │
+        persist when ─────┤  2 s of inactivity
+                          │  OR 5 s since the first unsaved change
+                          │  OR 1 KB of accumulated change
+                          │  OR the page is unloaded
+                          ▼
+                       CLEAN   cancel timers, reset counter
+```
+
+**The one implementation trap, stated because it is easy to get wrong:** the inactivity timer resets on every change, and the **ceiling timer must not**. Reset both and continuous typing never reaches the ceiling, which collapses the design back to pure debounce and restores the unbounded loss window the ceiling exists to close.
+
+**Dirty means the content differs from the last persisted version, not that events occurred.** Typing a character and deleting it again leaves the document byte-identical to what is stored, so the flush is skipped. The comparison happens once at flush time rather than per keystroke.
+
+**Why 1 KB rather than a smaller threshold.** The volume trigger exists to catch bulk changes — a paste, a large deletion — where waiting out the ceiling would leave a lot of work unsaved. It must therefore sit above what ordinary typing produces within one ceiling interval. At 40 words per minute a typist generates roughly 4 characters per second, and a fast typist about 8, so five seconds of continuous typing is at most ~40 characters. A threshold of 20 bytes would fire at 2.5–5 seconds — either duplicating the ceiling exactly or beating it and doubling the write rate — while contributing no additional safety. At 1 KB it fires only for changes that are not typing.
+
+**Data-loss exposure, stated as a choice rather than left implicit.** Because Decision 3 makes the server a relay that never assembles the document, it cannot flush on a client's behalf when a connection drops. The worst case is therefore five seconds of one user's own typing, roughly 20–40 characters, and the page-unload flush removes the most common instance of it (closing a tab mid-sentence). This is more permissive than Google Docs, which persists far more aggressively, and it is accepted deliberately in exchange for the write reduction below.
+
+**The write-load result.** Phase 1's assumption A4 saved every two seconds regardless, giving 100 writes/sec at MVP and 1,000 at 10×. A five-second ceiling bounds this at **40 writes/sec at MVP and 400 at 10×** — a 60% reduction, and a genuine upper bound rather than an average, since pauses persist earlier and then stop. **Adding real-time makes the storage tier cheaper**, which is the write-amplification lever Phase 1 identified and deferred.
 
 ### Channel authentication
 
