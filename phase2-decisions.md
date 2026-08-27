@@ -2,7 +2,7 @@
 
 Phase 2 adds the three off-the-shelf capabilities CollabDocs cannot launch without: **identity**, **real-time coordination**, and **operational visibility**. Each is a deliberate build-versus-buy decision, made against a committed market hypothesis and the project's quality-attribute ranking.
 
-**Status:** Decision 1 settled 2026-08-27. Decisions 2–5 pending.
+**Status:** Decisions 1 and 2 settled 2026-08-27. Decisions 3–5 pending.
 
 ---
 
@@ -107,3 +107,75 @@ MAU  =  8,000 DAU ÷ 0.50 stickiness       =  16,000       (50% DAU/MAU is mid-b
 **Falsification.** An assumption that contradicts the others is refuted for free. A 20% active rate would imply 4,000 MAU, 2,000 DAU, and every daily user online for five hours — absurd, and rejected without any market research. Real numbers replace this the moment the product has users; until then the derivation stands in for a measurement, and is labelled as such.
 
 **A tension recorded honestly:** B1 combined with B3 implies revenue in the millions within a year, which no solo developer reaches without exceptional growth. The scale figure is inherited from the brief rather than forecast here, and product-led growth is the only distribution model that makes it even arguable. Where the two conflict, the scale premise governs the architecture and the revenue figure should be read as illustrative.
+
+---
+
+## Decision 2 — Authentication
+
+*Affects FR1, NFR1, and Decision 1.*
+
+**Decision: WorkOS.** Hosted identity, integrated directly in the route handlers and one session middleware, with no abstraction layer over it (Constraint 1).
+
+### One-year cost at 15,000 MAU (B4)
+
+Integration effort is included, because leaving it out is the classic way a build-versus-buy comparison lies. Custom's eight hours *is* its integration; the vendors need roughly a week each.
+
+| | Licence, year 1 | Integration | SSO when demanded | **Year 1** | **Total once SSO exists** |
+|---|---|---|---|---|---|
+| **Auth0** | $4,500 (15,000 × $0.025) | ~$4,000 | +$2,880/yr add-on | **$8,500** | **$11,380** |
+| **WorkOS** | **$0** (free to 1M users for SSO/SAML/Directory Sync) | ~$4,000 | included | **$4,000** | **$4,000** |
+| **Custom JWT + bcrypt** | $0 | $800 (8 hr) | +$12,000–16,000 to build | **$800** | **$12,800–16,800** |
+
+**Auth0 is dominated and eliminated first.** It costs more than WorkOS on every line and buys nothing WorkOS lacks at this scale — not portability, not features, not reversibility.
+
+**The remaining comparison has a shape worth stating plainly: custom is the cheapest option right up until the moment the market hypothesis pays off.** Without SSO it wins on cash by a wide margin. With SSO — which Decision 1 says arrives with the first serious customer — it becomes the most expensive option available, by a factor of three.
+
+### Why cost is not the discriminator
+
+The three options span an order of magnitude, and **the cheapest is a vendor while the middle one is building it yourself**. That inverts the usual build-versus-buy intuition and it means price has stopped separating the candidates. Three other factors decide it.
+
+**1. Decision 1 makes SSO a near-term obligation.** Product-led B2B means the enterprise gate arrives on a customer's schedule, not ours. WorkOS supplies it years before it could be justified as a build. This is the deciding argument.
+
+**2. Reversibility is real but hypothetical.** Decision 1 asked that B2G-style contracts stay reachable, and WorkOS — being hosted-only — cannot deploy into an air-gapped or sovereign environment. But that is *possible future revenue* weighed against *near-term actual revenue*, and paying a certain cost today for an uncertain benefit later is the exact pattern the Phase 1 review already corrected once. Reversibility is therefore preserved by cheap measures rather than by the implementation choice (below).
+
+**3. Security ownership.** The worksheet's own phrase for custom is "security maintenance is yours", and that term never shrinks. Eight hours buys password hashing and token issue/verify — not password reset, not MFA, not session revocation, not breach-list checking, not account lockout, not audit logs.
+
+### NFR1: login p95 < 200 ms constrains both options
+
+Neither candidate satisfies the latency budget for free, in opposite directions:
+
+- **Hosted providers** using a redirect flow cross the vendor's domain over several round trips, commonly 200–500 ms end to end. WorkOS must therefore be integrated in its **embedded/API mode rather than a hosted redirect**, which is a binding implementation requirement rather than a preference.
+- **Custom bcrypt is deliberately slow** — that is its purpose. A work factor of 10 costs roughly 60–100 ms; 12 costs 250–400 ms and breaches the budget outright. Choosing custom would mean **capping the work factor for latency reasons**, trading offline-cracking resistance for response time, and defending where that line sits.
+
+Verification is by measurement at the endpoint, not by assumption.
+
+### Considered and rejected: an adapter layer with swappable auth implementations
+
+The most attractive rejected option, recorded because the reasoning matters more than the conclusion: wrap authentication behind an internal interface, run WorkOS today, and deploy a self-hosted implementation for B2G later.
+
+It was rejected for three independent reasons, any one of which is sufficient.
+
+**It is forbidden this phase.** Constraint 1 bans abstraction over auth, real-time and monitoring libraries, deferring it to Phase 3 — the same treatment Phase 1 gave storage.
+
+**An abstraction designed against one implementation is a guess.** The interface would be shaped by WorkOS's session model, token format, callback flow and user object, and the self-hosted alternative would not fit it. The wrapper leaks, the swap costs what it always would have, and a wrapper that misrepresented itself as ready is now also maintained. **The second implementation is what discovers the interface**, which is precisely why Phase 3 follows Phase 2 rather than preceding it.
+
+**Two implementations is a fork, not a swap.** Maintaining parallel auth builds means every feature built twice, tested twice, and a permanent class of divergence bug — a large standing commitment made today against revenue that does not exist. The realistic path is not a build flag but a funded migration: win the contract, spend two to three weeks moving identity. Pricing that migration is the correct posture, and it matches Phase 1's conclusion about deployment lock-in — a bounded, known exit cost rather than portability purchased up front.
+
+### Reversibility measures taken instead
+
+Free, and none of them an abstraction, so Constraint 1 holds:
+
+1. **Vendor identifiers never become primary keys.** The application keeps its own `users.id`; WorkOS's subject identifier is an ordinary attribute beside it, and `documents.owner_id` references ours. Changing provider then repopulates one column instead of rewriting every foreign key. This is the highest-value item on the list and it is a data-model choice, not a layer.
+2. **Session validation lives in one middleware**, not scattered through handlers — which is how it would be written regardless.
+3. **OIDC rather than a proprietary SDK flow**, so the protocol survives a change of vendor even though the vendor does not.
+
+### Things given up
+
+1. **The air-gapped deployment path, until a migration is funded.** B2G and sovereign contracts stay closed. Reopening them is a two-to-three-week identity migration — priced, not impossible, and explicitly not paid for now.
+2. **Control of the pricing floor.** Free-to-1M is a land-grab term, and land-grab pricing gets revised. If it changes, the negotiation happens from inside a dependency every user authenticates through.
+
+### Revisit if
+
+- WorkOS reprices or restricts the free tier, at which point the migration cost above becomes a live number rather than a hypothetical one.
+- A B2G or sovereign-deployment contract is actually won and funded.
+- Measured login p95 exceeds 200 ms even in embedded mode, which would make the vendor a direct NFR1 failure rather than a cost question.
