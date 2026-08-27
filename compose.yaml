@@ -1,0 +1,31 @@
+# Local stack for machines that have a container runtime. Machines without one
+# use `make dev`, which runs the same application against a userland PostgreSQL
+# (see scripts/localpg.sh) — that is the path verified in this repository.
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_PASSWORD: collabdocs
+      POSTGRES_DB: collabdocs
+    ports: ["5433:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  app:
+    build: .
+    environment:
+      DATABASE_URL: postgres://postgres:collabdocs@db:5432/collabdocs?sslmode=disable
+      DB_MAX_CONNS: "10"
+    ports: ["8080:8080"]
+    depends_on:
+      db: {condition: service_healthy}
+    # Two instances, matching Decision 1's derived count.
+    deploy:
+      replicas: 2
+
+volumes:
+  pgdata:

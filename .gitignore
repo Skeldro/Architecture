@@ -1,2 +1,6 @@
 # runtime data — the user's documents live here, not in git
 docs/
+
+# local database cluster (userland postgres)
+.localpg/
+bin/
