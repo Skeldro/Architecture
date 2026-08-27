@@ -220,20 +220,33 @@ Keeping the server a **relay** rather than an authority preserves Phase 1's Deci
 Persistence is **triggered by changes, never by a clock.** A clean document runs no timers, counts nothing and issues no writes — there is nothing to save, so nothing happens. The schedule exists only while unsaved changes do.
 
 ```
-CLEAN ──first change──► DIRTY
-                          │  start inactivity timer (2 s)
-                          │  start ceiling timer   (5 s)   ← not reset by later changes
-                          │  start byte counter
-                          │
-        further change ───┤  reset inactivity timer; accumulate bytes
-                          │
-        persist when ─────┤  2 s of inactivity
-                          │  OR 5 s since the first unsaved change
-                          │  OR 1 KB of accumulated change
-                          │  OR the page is unloaded
-                          ▼
-                       CLEAN   cancel timers, reset counter
+CLEAN ──first change──► DIRTY ──trigger──► SAVING ──success──► CLEAN
+                          ▲                  │
+                          │  start timers    │  snapshot content
+                          │  count bytes     │  cancel timers, reset counter
+                          │                  │  at most one save ever in flight
+                          │                  │
+                          └── change during ─┘   sets dirty-again; starts no second save
+                             (on completion: adopt the returned version,
+                              re-enter DIRTY if the flag is set, else CLEAN)
+
+  triggers, whichever comes first:
+      2 s of inactivity
+      5 s since the first unsaved change      ← ceiling; not reset by later changes
+      1 KB of accumulated change
+      the page is unloaded
 ```
+
+**Only one save may be in flight, and the reason is a real bug rather than tidiness.** Persistence is an optimistic update carrying the version the client last knew. If two saves overlap — a bulk paste triggers one, and the ceiling fires again during the ~80 ms the write takes — both carry the same base version:
+
+```
+save A:  UPDATE … WHERE id = 1 AND version = 5   →  1 row,  version becomes 6
+save B:  UPDATE … WHERE id = 1 AND version = 5   →  0 rows  →  409 CONFLICT
+```
+
+The second save conflicts **with the first one from the same user**, and the conflict page announces that somebody else edited the document to a person working alone. The `SAVING` state prevents this by construction: changes arriving mid-save set a flag rather than starting a second write.
+
+**Coalescing is free because persistence sends the whole document rather than deltas.** However many changes land during an in-flight save, the following save carries all of them, so a single boolean suffices and no queue is needed. This also imposes a natural rate limit — one save per round trip, roughly twelve per second in the worst case — which bounds a runaway client without an explicit throttle.
 
 **The one implementation trap, stated because it is easy to get wrong:** the inactivity timer resets on every change, and the **ceiling timer must not**. Reset both and continuous typing never reaches the ceiling, which collapses the design back to pure debounce and restores the unbounded loss window the ceiling exists to close.
 
