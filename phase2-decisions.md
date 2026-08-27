@@ -2,7 +2,7 @@
 
 Phase 2 adds the three off-the-shelf capabilities CollabDocs cannot launch without: **identity**, **real-time coordination**, and **operational visibility**. Each is a deliberate build-versus-buy decision, made against a committed market hypothesis and the project's quality-attribute ranking.
 
-**Status:** Decisions 1 and 2 settled 2026-08-27. Decisions 3–5 pending.
+**Status:** Decisions 1, 2 and 3 settled 2026-08-27. Decisions 4–5 pending.
 
 ---
 
@@ -81,6 +81,7 @@ The discipline here is the one the Phase 1 review already enforced: **do not bui
 | B2 | **~15 seats per organisation on average** | Small-team focus; implies roughly 1,300 organisations at B1 |
 | B3 | **Pricing around $99/month up to 10 seats, then ~$9/seat** | Placeholder figures consistent with the agreed shape. The *shape* is decided; the exact numbers are not, and only Decision 2's cost comparison depends on them |
 | B4 | **~15,000 monthly active users in year 1** (band 14,000–16,000) | Derived backwards from the inherited concurrency figure rather than forecast — see below |
+| B5 | **Year-1 peak concurrent = 10,000** | NFR4 requires 10× MVP headroom, and MVP is 1,000 concurrent (A1). The brief's 100,000-concurrent goal is a stated ambition, not a requirement of this phase, and reaching it would need re-architecture rather than re-tuning |
 
 
 
@@ -179,3 +180,84 @@ Free, and none of them an abstraction, so Constraint 1 holds:
 - WorkOS reprices or restricts the free tier, at which point the migration cost above becomes a live number rather than a hypothetical one.
 - A B2G or sovereign-deployment contract is actually won and funded.
 - Measured login p95 exceeds 200 ms even in embedded mode, which would make the vendor a direct NFR1 failure rather than a cost question.
+
+---
+
+## Decision 3 — Real-time mechanism and conflict semantics
+
+*Affects FR3, NFR2, NFR4.*
+
+**Decision: a self-hosted WebSocket endpoint inside the Go application**, using a maintained Go library (`coder/websocket` or `gorilla/websocket`), with PostgreSQL `LISTEN`/`NOTIFY` as the cross-instance backplane. The server relays opaque operations; it does not apply them. Optimistic concurrency on the `version` column is retained as the persistence authority.
+
+### Mechanism
+
+**Rejected: Pusher / Ably — on fit, not on price.** These are **fan-out** products: one publish, many deliveries, which is what makes live scores, chat rooms and dashboards worth paying for. CollabDocs has a fan-out ratio of **1** — Constraint 4 gives each document a single user, and even after Phase 4 introduces sharing a document has a handful of editors, never thousands. More decisively, for a collaborative editor **the transport is the easy part**: a managed pipe delivers bytes and leaves ordering, convergence and persistence entirely with us. Buying it would solve perhaps a fifth of the problem while adding a fourth multiplicand to Decision 5's availability product.
+
+*(Noted for the record: the managed category that would actually address the hard part is sync engines — Liveblocks, Yjs with a hosted backend, Automerge, ShareDB — not pub/sub. None appear in the options offered, and the mature implementations are JavaScript and Rust, which our stack argues against.)*
+
+**Rejected: Socket.IO — because it is a JavaScript library and this is a Go service.** There is no first-party Go server; adopting it means depending on a community reimplementation of a protocol whose reference implementation lives in another language and versions independently. The failure mode is a routine client upgrade breaking the handshake, with the fix outside our control. Its genuinely useful features are small in Go: reconnection is about thirty lines of client script, rooms are a map, and heartbeats ship with the library. Only long-polling fallback is non-trivial, and its value has declined as WSS became universally proxy-passable.
+
+**Chosen: raw WebSocket.** First-class in Go, actively maintained, and natively supported by the browser at zero client-bundle cost — which matters for an application that currently ships no JavaScript at all. The worksheet prices this at ~40 hours because it assumes message replay after disconnect; **we do not need replay.** On reconnect the client simply re-fetches the document over the existing HTTP endpoint, which removes sequence numbers, gap detection and buffering, and brings the realistic build to one or two days.
+
+**Cross-instance delivery** uses PostgreSQL `LISTEN`/`NOTIFY` rather than adding Redis. Instances are stateless in every respect that matters (Phase 1, Decision 3): a connection is held by one instance, and a change on another reaches it through the database we already run. Payloads are capped at 8000 bytes, which is ample for "document N changed to version M", and durability is not required because the document itself is durable.
+
+### Conflict semantics
+
+**Retained: optimistic concurrency via the `version` column, with the server as relay rather than authority.**
+
+**LWW is explicitly rejected as a regression.** The worksheet lists it as the simplest option, but the system already does better: the version predicate *detects* a collision and returns the losing writer's text to them. Last-write-wins would silently discard it, undoing the FR3 property built and verified in Phase 1.
+
+**OT and CRDT are deferred, because there is nothing yet to converge.** Constraint 4 permits one user per document, so the only concurrency available is one person with two tabs or a second device. Both are weeks of work for a scenario that cannot presently occur.
+
+**What real-time changes is the role of the version column, not its existence.** The broadcast carries the new version alongside the operation, so a peer that receives it updates its baseline and is no longer stale. Real-time makes conflicts *rare*; the version check catches those that slip through — a dropped broadcast, a sleeping tab, a device on a dead connection — and the existing conflict page handles them. **Optimistic concurrency stops being the primary mechanism and becomes the safety net.** Nothing built in Phase 1 is retired.
+
+Keeping the server a **relay** rather than an authority preserves Phase 1's Decision 3: the real-time layer holds no state worth keeping, so dropping every connection loses nothing, and PostgreSQL remains the single source of truth.
+
+### Save cadence
+
+**Broadcast immediately; persist debounced after ~2 seconds of inactivity.** Propagation and persistence are different problems with different deadlines: peers need the edit inside NFR2's 500 ms, whereas the database only needs the document eventually.
+
+This is also a substantial improvement on Phase 1. Assumption A4 writes every two seconds *regardless of whether anyone is typing*, producing 100 writes/sec at MVP. Debounced persistence writes only when typing stops — roughly an order of magnitude fewer database writes. **Adding real-time makes the storage tier cheaper**, which is the write-amplification lever Phase 1 identified and deferred.
+
+### Channel authentication
+
+**Session cookie on the handshake**, validated before the connection is accepted. The WebSocket upgrade is an ordinary HTTP request, so the browser attaches the WorkOS session cookie automatically. This is forced as much as chosen: **the browser WebSocket API cannot set custom headers**, so `Authorization: Bearer` is unavailable, and a token in the query string would be written to every access log along the path.
+
+Two checks happen at connection time: the session must be valid (acceptance criterion 3), and the subscriber must own the requested document (FR2, acceptance criterion 4). Subscriptions are per document, so broadcasts never reach sessions viewing anything else (acceptance criterion 6).
+
+### Scaling to 10× MVP (sketch only — not implemented)
+
+At B5's 10,000 concurrent connections the current envelope **fails, and the arithmetic is worth stating**: Cloud Run permits at most 1,000 concurrent requests per instance and a held-open WebSocket counts as one for its entire life, so 10,000 connections need at least ten instances — while Decision 1 caps at eight, a ceiling set by database connections rather than by compute.
+
+Three moves, in increasing order of change. **Re-tune first:** reduce the per-instance pool from ten connections to five, which doubles the permissible instance count to sixteen and carries 16,000 connections — re-tuning, so NFR4 survives. **Then decouple:** introduce PgBouncer so instance count stops being a function of database connections at all. **Then separate the tiers:** move connection-holding into a dedicated real-time service so that the request-serving tier scales on request concurrency and the connection tier scales on socket count, since the two signals stop agreeing the moment connections are long-lived.
+
+A second, unrelated consequence: **Cloud Run terminates connections at sixty minutes**, so reconnect-and-refetch is mandatory rather than optional. That is already the design, which is convenient rather than accidental.
+
+### The Phase 4 target architecture, recorded now
+
+The mechanism for genuine multi-editor concurrency is settled in *shape* even though it is not built: **server-authoritative, clients transmit operations rather than documents, clients predict locally and hold a buffer of unacknowledged operations, and divergence is resolved by rolling back to server state and replaying the buffer.**
+
+This is Quake 3's network model — usercmds, authoritative snapshots, client prediction, replay of unacknowledged input — and recognising the two problems as the same one is what makes the target concrete rather than aspirational. An OT client is structurally identical: a pending-operation buffer, rewound and re-applied when authoritative state arrives.
+
+**One named open question decides which family it lands in.** Replay is only sound when operations are context-independent. Game inputs are — "move forward" means the same thing against any baseline. Text operations addressed by position are not: `insert(6, …)` refers to an index in a mutable array, so replaying it against a changed baseline corrupts the document. Two resolutions exist, and they are exactly the two options the worksheet offers:
+
+- **Positional operations**, corrected before replay by a transform function — this is **OT**, and that transform is where its difficulty lives.
+- **Identity-addressed operations** (`insert after character (site, counter)`), which are context-independent and replay natively with no transform — this is **CRDT**, paid for in per-character metadata and tombstones.
+
+Deferred to Phase 4 deliberately: with zero concurrent editors and zero users, choosing now would mean designing against no implementations — the same error as wrapping authentication in an adapter before a second provider exists.
+
+**Candidate carried forward:** bounding position arithmetic to document sections rather than the whole document, so that merge scope and blast radius stay small. Production editors do this (Notion syncs per block; Google Docs chunks internally). The caveat is that a section anchor must itself be stable — paragraph indices are not, since inserting a newline renumbers everything after it.
+
+**Rejected outright, and worth recording because the reasoning generalises:** resolving concurrent edits inside a fixed time window — a "human reflex buffer" of a few hundred milliseconds, after which corrections are applied by offset. **Correctness may never depend on a wall-clock window in an asynchronous network**, because message delay is unbounded: a device on a poor connection delivers its operation seconds late, the window has closed, and the document is silently wrong — corruption rather than a detected conflict, which is precisely the FR3 failure. Timeouts are legitimate for liveness decisions ("assume it is gone and proceed") and never for correctness ones. The offset correction also generalises, on contact with multi-character deletes, pastes and out-of-order arrival, into a general position-remapping function — which is `transform()`, rebuilt without OT's correctness proofs, in a field where several published algorithms were later shown to be wrong.
+
+### Things given up
+
+1. **Managed availability for the real-time layer.** Self-hosting means an outage in the connection layer is ours to diagnose and fix, with no vendor SLA behind it. Accepted because it is also what *avoids* a fourth multiplicand in Decision 5 — the only choice in this phase that improves end-to-end availability rather than degrading it.
+2. **Long-polling fallback.** Clients behind a proxy that blocks WebSocket get no real-time updates at all. They degrade to the Phase 1 experience — refresh to see changes — rather than failing, but in a B2B market corporate proxies are exactly where this risk lives.
+
+### Revisit if
+
+- Concurrent connections approach roughly 8,000, where the Cloud Run instance ceiling binds and the re-tuning sequence above must actually be executed.
+- Phase 4 introduces multi-editor documents — at which point the positional-versus-identity question stops being deferrable.
+- Measured edit-to-peer latency exceeds NFR2's 500 ms p95, which would indict `LISTEN`/`NOTIFY` as the backplane before it indicts the transport.
+- Corporate-proxy WebSocket blocking is reported by real customers, which would revive the long-polling question.
