@@ -80,5 +80,30 @@ The discipline here is the one the Phase 1 review already enforced: **do not bui
 | B1 | **~20,000 registered users in year 1** | Inherited, not claimed: Phase 1's premise of 1,000 concurrent users at MVP with roughly 20 registered per concurrent user. The 100,000-concurrent year-one goal came with the brief |
 | B2 | **~15 seats per organisation on average** | Small-team focus; implies roughly 1,300 organisations at B1 |
 | B3 | **Pricing around $99/month up to 10 seats, then ~$9/seat** | Placeholder figures consistent with the agreed shape. The *shape* is decided; the exact numbers are not, and only Decision 2's cost comparison depends on them |
+| B4 | **~15,000 monthly active users in year 1** (band 14,000–16,000) | Derived backwards from the inherited concurrency figure rather than forecast — see below |
+
+
+
+### Deriving monthly active users (B4)
+
+**MAU** (monthly active users) is the unit identity vendors bill on, so Decision 2's cost comparison rests entirely on it. No forecast exists for this product, and a top-down market estimate would be unfalsifiable — so the figure is derived backwards from the one number the brief already fixed: concurrency.
+
+The chain, using the standard ratios:
+
+```
+concurrent / DAU  =  minutes of use per day  ÷  minutes in the active window
+                  =  75 min ÷ 600 min (a ~10-hour spread of working timezones)
+                  ≈  12.5%
+
+DAU  =  1,000 concurrent ÷ 0.125          =  8,000        (A1)
+MAU  =  8,000 DAU ÷ 0.50 stickiness       =  16,000       (50% DAU/MAU is mid-band for a B2B work tool)
+     →  16,000 / 20,000 registered        =  80% active   (B1)
+```
+
+**Cross-check against A6.** Phase 1 assumed 20 registered users per concurrent user, i.e. concurrent/registered = 5%. Multiplying the chain independently gives `12.5% × 50% × 80% = 5.0%`. The two agree, which means A6 and the standard ratios are describing the same product rather than contradicting one another.
+
+**Sensitivity.** The only soft input is daily usage. At 84 minutes per day the chain yields 14,000 MAU; at 75 minutes, 16,000. The answer is therefore stable in the 14,000–16,000 band, and **no decision below turns on where in that band it falls** — which is the reason the estimate is good enough to use.
+
+**Falsification.** An assumption that contradicts the others is refuted for free. A 20% active rate would imply 4,000 MAU, 2,000 DAU, and every daily user online for five hours — absurd, and rejected without any market research. Real numbers replace this the moment the product has users; until then the derivation stands in for a measurement, and is labelled as such.
 
 **A tension recorded honestly:** B1 combined with B3 implies revenue in the millions within a year, which no solo developer reaches without exceptional growth. The scale figure is inherited from the brief rather than forecast here, and product-led growth is the only distribution model that makes it even arguable. Where the two conflict, the scale premise governs the architecture and the revenue figure should be read as illustrative.
