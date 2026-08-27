@@ -263,4 +263,4 @@ Not open decisions — the five above are settled. These are gaps in the surroun
 1. **`project-overview.md` is still not in the repository.** The mentor review confirms it specifies the five-field digest format; the digest above is a best reconstruction and the field names need checking against the real file.
 2. **Assumption A3 (20% typing fraction)** remains the most load-bearing unverified number in this document; every write figure scales linearly with it.
 3. **Cloud provider not chosen.** Cloud Run with Cloud SQL and ECS Fargate with RDS are equivalent for every argument made here, so the decision is deferred to deployment time rather than being architectural.
-4. **`phase1-spec.md` not yet written** — decisions first, then translation into the build spec.
+4. **Cloud deployment is unverified.** `deploy/main.tf` has never been applied and the container image has never been built — both need cloud credentials and a container runtime the development environment lacks. Everything below the deployment layer is verified; see the README's verification table.
