@@ -2,7 +2,7 @@
 
 Phase 2 adds the three off-the-shelf capabilities CollabDocs cannot launch without: **identity**, **real-time coordination**, and **operational visibility**. Each is a deliberate build-versus-buy decision, made against a committed market hypothesis and the project's quality-attribute ranking.
 
-**Status:** Decisions 1, 2 and 3 settled 2026-08-27. Decisions 4–5 pending.
+**Status:** Decisions 1–4 settled. Decision 5 pending.
 
 ---
 
@@ -324,3 +324,67 @@ Deferred to Phase 4 deliberately: with zero concurrent editors and zero users, c
 - Phase 4 introduces multi-editor documents — at which point the positional-versus-identity question stops being deferrable.
 - Measured edit-to-peer latency exceeds NFR2's 500 ms p95, which would indict `LISTEN`/`NOTIFY` as the backplane before it indicts the transport.
 - Corporate-proxy WebSocket blocking is reported by real customers, which would revive the long-polling question.
+
+---
+
+## Decision 4 — Monitoring
+
+*Affects FR4, NFR3.*
+
+**Decision: platform-native alerting as the required floor, plus Sentry for diagnosis, plus a platform uptime check for total-outage detection.** All three are used directly, with no abstraction layer (Constraint 1). Total cost at MVP: **$0–26 per month.**
+
+| Layer | Job | Satisfies |
+|---|---|---|
+| **Cloud Monitoring alert on Cloud Run's `request_count`** | Detects aggregate degradation | **NFR3** |
+| **Sentry** | Names the failure — stack trace, release, affected user | FR4, and Decision 1's B2B attribution need |
+| **Cloud Monitoring uptime check** | Detects total outage from outside | The gap the other two structurally cannot cover |
+
+These are complementary rather than competing: only the first is required by NFR3, and each answers a different question.
+
+### One asymmetry that changes the reasoning from Decisions 2 and 3
+
+**Monitoring is not in the request path.** If Sentry is unavailable, every request is still served. Unlike WorkOS or a managed real-time vendor, **it adds no multiplicand to Decision 5's availability product** — so the "self-host to protect the SLA" argument that partly decided Decision 3 has no force here, and buying is far cheaper in availability terms than it was there.
+
+Worth stating explicitly, because reusing an argument whose premise no longer holds is exactly the error the Phase 1 review caught with "Maintainability ranks last."
+
+### Why the floor is platform-native
+
+Cloud Run writes `request_count` labelled by `response_code_class`, and **is integrated with Cloud Monitoring automatically, with no setup and no instrumentation**. The 5xx rate is therefore already being collected as a consequence of Decision 1, before anything is decided here. A ratio-based alerting policy — expressed in PromQL, the same language the application's own `/metrics` endpoint already speaks — turns that into NFR3 compliance for nothing.
+
+**The NFR3 budget:** a one-minute aggregation window, plus alert evaluation and notification latency of a few minutes, sits inside the five-minute requirement with margin. The margin is not large, so the end-to-end time from fault injection to notification is something to **measure once and record**, not assume.
+
+### Rejected on requirements
+
+**Manual reading of `/metrics` — fails NFR3.** Phase 1 built the signals, and the worksheet's "build basic" option pairs them with manual inspection. Nobody reads a metrics endpoint every five minutes, so detection never happens. This is not a candidate; it is the floor already standing, and NFR3 exists precisely because a floor is not enough.
+
+**Self-hosted Prometheus and Alertmanager — disqualified by Decision 1, on mechanism rather than on cost.** Prometheus *pulls*: it requires stable, individually addressable scrape targets. Cloud Run provides ephemeral instances behind a load balancer with no per-instance addressing, so scraping the service URL samples a different random instance each time and yields noise rather than measurement. It is also a stateful service to operate, contradicting the statelessness chosen in Phase 1, with nobody available to operate it.
+
+This is worth recording plainly: **the compute decision eliminated the standard open-source answer**, and not by preference.
+
+### Rejected on sizing, which is a weaker argument and is labelled as such
+
+**Datadog satisfies every requirement in this phase.** It is rejected for proportion: full application-performance monitoring for a single Go service at ~150 requests per second, billed per host on a platform that has no hosts, bought by a solo developer. That is the same shape as five replicas serving a two-instance load, and the same correction applies. Its costs are also famously driven by cardinality and retention rather than headline price, which makes the bill hard to bound in advance.
+
+### Why Sentry is added when NFR3 does not require it
+
+The argument is Decision 1's, not NFR3's. **In product-led B2B one broken organisation is a churn event, not noise.** A 5xx ratio tells an operator that something is failing; it never names the customer, the endpoint or the line. Sentry supplies the stack trace, groups recurrences, and correlates a spike to the release that caused it — which is the difference between knowing there is an incident and being able to end it.
+
+**A gotcha worth recording:** the free tier is 5,000 events per month, which is generous when the application is healthy and can be exhausted in minutes by a bad deploy — precisely when the tool matters most. Event sampling for high-frequency errors should be configured from the start rather than after the first incident.
+
+### Why an uptime check, when it satisfies no requirement by itself
+
+**If the service is entirely down, its own monitoring is down with it.** Metrics stop being emitted, logs stop being written, and total failure looks indistinguishable from a quiet night — alerts that trigger on error *ratios* cannot fire when there are no requests to form a ratio from.
+
+An external prober is the only thing that distinguishes "no errors" from "no service". Cloud Monitoring provides uptime checks natively, so this requires no additional vendor. A fully independent third-party prober would be more rigorous, since Google would then not be monitoring itself, but that is not proportionate at this scale.
+
+### Things given up
+
+1. **Vendor-independent monitoring.** Detection now depends on the same provider that runs the service, so a Google Cloud control-plane failure could impair both serving and the alerting meant to report it. Accepted because a genuinely independent stack costs either money or an operated service, and the exposure is a correlated failure of a provider whose outage would already be the headline.
+2. **Deep performance diagnosis.** Without APM there are no distributed traces and no per-endpoint breakdown of where time is spent. Latency questions must be answered from the histogram Phase 1 already exposes, which is coarser. Acceptable for one service; it would not be for several.
+
+### Revisit if
+
+- Measured detection time from fault to notification exceeds five minutes, which would indict the platform alerting path against NFR3 directly.
+- Sentry's event volume regularly exceeds the free tier outside incidents, making the $26/month tier a real line item rather than a contingency.
+- The system grows past one service, at which point distributed tracing stops being over-buying and the Datadog-class rejection deserves re-examination.
+- Any customer contract introduces a reporting or audit obligation that platform metrics cannot satisfy.
