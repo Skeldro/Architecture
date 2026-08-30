@@ -2,7 +2,7 @@
 
 Phase 2 adds the three off-the-shelf capabilities CollabDocs cannot launch without: **identity**, **real-time coordination**, and **operational visibility**. Each is a deliberate build-versus-buy decision, made against a committed market hypothesis and the project's quality-attribute ranking.
 
-**Status:** Decisions 1–4 settled. Decision 5 pending.
+**Status:** All five decisions settled, 2026-08-30.
 
 ---
 
@@ -388,3 +388,79 @@ An external prober is the only thing that distinguishes "no errors" from "no ser
 - Sentry's event volume regularly exceeds the free tier outside incidents, making the $26/month tier a real line item rather than a contingency.
 - The system grows past one service, at which point distributed tracing stops being over-buying and the Datadog-class rejection deserves re-examination.
 - Any customer contract introduces a reporting or audit obligation that platform metrics cannot satisfy.
+
+---
+
+## Decision 5 — Combined SLA
+
+*Affects NFR5.*
+
+**Decision: split the availability target by operation, degrade to read-only rather than fail, and move the database to regional high availability — which turns out not to be optional. Target 99.94% for core editing. Publish no contractual SLA at MVP.**
+
+### The baselines, verified rather than assumed
+
+The worksheet supplies baselines for the exercise. Two of them do not survive contact with the actual published agreements, and both corrections change the answer:
+
+| Component | Worksheet | Published | Effect |
+|---|---|---|---|
+| App tier | 99.9% | **99.95%** (Cloud Run, non-GPU) — but **99.9%** in Mexico and Stockholm | Better, and region-dependent |
+| Managed PostgreSQL | 99.95% | **99.95%** Enterprise + HA; **99.99%** Enterprise Plus + HA; **single-zone instances are excluded from the SLA entirely** | The current design has no covered figure at all |
+| WorkOS | 99.9% | Not verified; worksheet figure used | — |
+
+**The second row supersedes part of Phase 1's Decision 2**, which specified "a single managed PostgreSQL instance." A standalone zonal instance is not a Covered Service, so it carries no availability commitment — Google will recover it from a host failure but not from a zone outage. **Any claim made about database availability today is unsupported by the provider.** Regional high availability is therefore not an optimisation to consider later; it is the precondition for having a number to multiply at all.
+
+This is recorded here rather than edited into Phase 1 because the sequence matters: the decision was reasonable on the information used, and the gap was found by checking the source rather than by re-reading the design.
+
+### The arithmetic
+
+With Move 1 applied, WorkOS leaves the core product (see below), so the core editing path is App × Database:
+
+| Configuration | Core editing | Downtime/year |
+|---|---|---|
+| As specced in Phase 1 (single-zone database) | **no covered figure** | unquantifiable |
+| Cloud Run + Cloud SQL Enterprise HA | `0.9995 × 0.9995` = **99.900%** | 8.76 h — exactly the budget, zero margin |
+| Cloud Run + Cloud SQL **Enterprise Plus** HA | `0.9995 × 0.9999` = **99.940%** | **5.25 h — clears with real margin** |
+| Login path (adds WorkOS) | `× 0.999` = **99.84%** | 14.0 h, tracked separately |
+
+**Target adopted: 99.94% for core editing, 99.84% for login.** Enterprise HA is rejected in favour of Enterprise Plus not on preference but on margin: hitting a target exactly, with eight seconds of slack per year, is indistinguishable from missing it.
+
+**A region constraint falls out of this and must be honoured:** Cloud Run is 99.9% rather than 99.95% in Mexico and Stockholm. Deploying there silently costs 0.05% and puts the target out of reach. The region is now an availability decision, not merely a latency one.
+
+### Move 1 — separate the SLI by operation
+
+**WorkOS sits in the login path, not the request path.** Once a session exists it is validated locally against a signed token; no vendor call occurs per request. So a WorkOS outage prevents *new logins* while every established session continues working normally.
+
+Collapsing both into a single availability figure is what produced the pessimistic number. Real providers publish per-API commitments for exactly this reason, and the two operations genuinely have different exposure.
+
+**This is an architectural commitment, not a definitional convenience, and it must be written down as one: session validation may never call the identity provider.** Local signature verification only — no token introspection on the request path. An implementation that "just checks with the provider to be safe" would silently reintroduce the multiplicand and invalidate the published figure.
+
+### Move 4 — degrade to read-only rather than fail
+
+When the database is unreachable, serve cached documents read-only rather than returning errors. This is the read-side cache Phase 1's Decision 2 deferred, returning with an availability justification rather than a latency one.
+
+**Its arithmetic value is small and is not claimed.** Read-only degradation only converts into availability under a request-success-ratio SLI — which is what Decision 4's alerting already measures — and even then it is worth roughly 0.01%, resting on a cache-hit-rate assumption too soft to defend.
+
+**Its real value is severity.** "Read-only for twenty minutes" is a different incident from "down for twenty minutes" for users, for support load, and for churn — which is the currency that matters in the B2B market Decision 1 chose. It is adopted for that reason and given no weight in the table above.
+
+### The two architectural changes named, per the worksheet
+
+1. **Regional high availability for the database** — a synchronous standby in a second zone with automatic failover. **Now reclassified as mandatory rather than optional**, since without it the instance is not a Covered Service. Roughly doubles the database cost; it is a configuration change, so NFR4's "re-tuning is fine" covers it.
+2. **Multi-region compute behind a global load balancer** — the only route to raising the app tier above a single region's ceiling, giving `1 − (1 − 0.9995)²` ≈ 99.99997% for compute. **Not taken**, because with one primary database the second region's writes cross a region boundary and breach NFR1's 200 ms and NFR2's 500 ms outright. Doing it properly requires read replicas, write routing and a decision about behaviour during a regional split — genuine re-architecture, which NFR4 says should not be needed at 10×.
+
+### No contractual SLA at MVP
+
+**A published availability commitment is a tier feature, not a launch requirement.** Product-led B2B sells self-serve, and self-serve tiers across this market — Notion's among them — commit to nothing; the guarantee appears with the enterprise tier, alongside the SSO demand Decision 2 anticipated.
+
+The position is therefore: **operate to 99.94%, measure against it, publish nothing.** The capability exists before the promise does, which is the correct order. When the first enterprise contract requires a number, the internal figure is already evidenced by Decision 4's monitoring, and change 2 is the funded response if the demanded number exceeds it.
+
+### Things given up
+
+1. **A published guarantee at launch**, and with it any deal that requires one on day one. Consistent with Decision 1's stated sacrifice of enterprise procurement.
+2. **Single-region operation as a permanent ceiling.** Nothing short of multi-region raises the compute tier further, so the architecture has a hard availability limit around 99.94% that no amount of tuning improves.
+
+### Revisit if
+
+- A customer contract demands a number above 99.94%, which makes change 2 a funded project rather than a recorded option.
+- Deployment region changes — Mexico and Stockholm carry a lower Cloud Run commitment and would invalidate the target.
+- WorkOS's actual published SLA is verified and differs from the worksheet's 99.9%, which would move the login figure.
+- Measured availability diverges from the computed figure, since these are vendor commitments rather than observations, and the only number that ultimately matters is the one Decision 4's monitoring records.
